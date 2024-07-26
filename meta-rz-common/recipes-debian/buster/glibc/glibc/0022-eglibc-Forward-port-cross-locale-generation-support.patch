@@ -1,29 +1,30 @@
-From e019fe6a2b410db6043e21803f497b5cbdd90a83 Mon Sep 17 00:00:00 2001
-From: Khem Raj <raj.khem@gmail.com>
-Date: Wed, 18 Mar 2015 01:33:49 +0000
-Subject: [PATCH 22/27] eglibc: Forward port cross locale generation support
+From 1f28e71fdfa3a25e685b075c33b34787e2e9f0ed Mon Sep 17 00:00:00 2001
+From: Hien Huynh <hien.huynh.px@renesas.com>
+Date: Fri, 30 Sep 2022 07:10:15 +0700
+Subject: [PATCH] eglibc: Forward port cross locale generation support
 
 Upstream-Status: Pending
 
 Signed-off-by: Khem Raj <raj.khem@gmail.com>
+Signed-off-by: Hien Huynh <hien.huynh.px@renesas.com>
 ---
- locale/Makefile               |  3 ++-
- locale/catnames.c             | 48 +++++++++++++++++++++++++++++++++++
+ locale/Makefile               |  3 +-
+ locale/catnames.c             | 46 +++++++++++++++++++++++++++++
  locale/localeinfo.h           |  2 +-
- locale/programs/charmap-dir.c |  6 +++++
- locale/programs/ld-collate.c  | 17 ++++++-------
- locale/programs/ld-ctype.c    | 27 ++++++++++----------
- locale/programs/ld-time.c     | 31 +++++++++++++++--------
+ locale/programs/charmap-dir.c |  6 ++++
+ locale/programs/ld-collate.c  | 17 +++++-----
+ locale/programs/ld-ctype.c    | 27 ++++++++--------
+ locale/programs/ld-time.c     | 31 +++++++++++++------
  locale/programs/linereader.c  |  2 +-
- locale/programs/localedef.c   |  8 ++++++
- locale/programs/locfile.c     |  5 +++-
- locale/programs/locfile.h     | 59 +++++++++++++++++++++++++++++++++++++++++--
- locale/setlocale.c            | 30 ----------------------
- 12 files changed, 169 insertions(+), 69 deletions(-)
+ locale/programs/localedef.c   |  8 +++++
+ locale/programs/locfile.c     |  5 ++-
+ locale/programs/locfile.h     | 58 +++++++++++++++++++++++++++++++++--
+ locale/setlocale.c            | 29 ------------------
+ 12 files changed, 166 insertions(+), 68 deletions(-)
  create mode 100644 locale/catnames.c
 
 diff --git a/locale/Makefile b/locale/Makefile
-index fd9972279b..176b3946de 100644
+index c9694e23..ba7105fa 100644
 --- a/locale/Makefile
 +++ b/locale/Makefile
 @@ -26,7 +26,8 @@ headers		= langinfo.h locale.h bits/locale.h \
@@ -38,10 +39,10 @@ index fd9972279b..176b3946de 100644
  		  address telephone measurement identification collate
 diff --git a/locale/catnames.c b/locale/catnames.c
 new file mode 100644
-index 0000000000..9fad357db1
+index 00000000..e1e65a64
 --- /dev/null
 +++ b/locale/catnames.c
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,46 @@
 +/* Copyright (C) 2006  Free Software Foundation, Inc.
 +   This file is part of the GNU C Library.
 +
@@ -63,20 +64,18 @@ index 0000000000..9fad357db1
 +#include "localeinfo.h"
 +
 +/* Define an array of category names (also the environment variable names).  */
-+const union catnamestr_t _nl_category_names attribute_hidden =
++const struct catnamestr_t _nl_category_names attribute_hidden =
 +  {
-+    {
 +#define DEFINE_CATEGORY(category, category_name, items, a) \
-+      category_name,
++    category_name,
 +#include "categories.def"
 +#undef DEFINE_CATEGORY
-+    }
 +  };
 +
 +const uint8_t _nl_category_name_idxs[__LC_LAST] attribute_hidden =
 +  {
 +#define DEFINE_CATEGORY(category, category_name, items, a) \
-+    [category] = offsetof (union catnamestr_t, CATNAMEMF (__LINE__)),
++    [category] = offsetof (struct catnamestr_t, CATNAMEMF (__LINE__)),
 +#include "categories.def"
 +#undef DEFINE_CATEGORY
 +  };
@@ -87,14 +86,14 @@ index 0000000000..9fad357db1
 +#define DEFINE_CATEGORY(category, category_name, items, a) \
 +    [category] = sizeof (category_name) - 1,
 +#include "categories.def"
-+#undef	DEFINE_CATEGORY
++#undef DEFINE_CATEGORY
 +    [LC_ALL] = sizeof ("LC_ALL") - 1
 +  };
 diff --git a/locale/localeinfo.h b/locale/localeinfo.h
-index 68822a6319..fa36123776 100644
+index 1bfe22aa..ac1b6101 100644
 --- a/locale/localeinfo.h
 +++ b/locale/localeinfo.h
-@@ -224,7 +224,7 @@ __libc_tsd_define (extern, locale_t, LOCALE)
+@@ -230,7 +230,7 @@ __libc_tsd_define (extern, locale_t, LOCALE)
     unused.  We can manage this playing some tricks with weak references.
     But with thread-local locale settings, it becomes quite ungainly unless
     we can use __thread variables.  So only in that case do we attempt this.  */
@@ -104,7 +103,7 @@ index 68822a6319..fa36123776 100644
  # define NL_CURRENT_INDIRECT	1
  #endif
 diff --git a/locale/programs/charmap-dir.c b/locale/programs/charmap-dir.c
-index 34a8d32c92..cbb9436cd1 100644
+index 1a526a24..0fb2daf9 100644
 --- a/locale/programs/charmap-dir.c
 +++ b/locale/programs/charmap-dir.c
 @@ -18,7 +18,9 @@
@@ -150,7 +149,7 @@ index 34a8d32c92..cbb9436cd1 100644
    return NULL;
  }
 diff --git a/locale/programs/ld-collate.c b/locale/programs/ld-collate.c
-index d2eebcfdbb..c3718d6589 100644
+index a0a3a157..decada94 100644
 --- a/locale/programs/ld-collate.c
 +++ b/locale/programs/ld-collate.c
 @@ -349,7 +349,7 @@ new_element (struct locale_collate_t *collate, const char *mbs, size_t mbslen,
@@ -168,7 +167,7 @@ index d2eebcfdbb..c3718d6589 100644
  		{
 -		  int c = wmemcmp ((wchar_t *) (*eptr)->wcs,
 -				   (wchar_t *) runp->wcs, runp->nwcs);
-+		  int c = wmemcmp_uint32 ((*eptr)->wcs, runp->wcs, runp->nwcs);
++                 int c = wmemcmp_uint32 ((*eptr)->wcs, runp->wcs, runp->nwcs);
  
  		  if (c == 0)
  		    {
@@ -179,9 +178,9 @@ index d2eebcfdbb..c3718d6589 100644
 -	      && wmemcmp ((wchar_t *) runp->wcs,
 -			  (wchar_t *)runp->wcnext->wcs,
 -			  runp->nwcs - 1) == 0
-+	      && wmemcmp_uint32 (runp->wcs,
-+				 runp->wcnext->wcs,
-+				 runp->nwcs - 1) == 0
++              && wmemcmp_uint32 (runp->wcs,
++                                 runp->wcnext->wcs,
++                                 runp->nwcs - 1) == 0
  	      && (runp->wcs[runp->nwcs - 1]
  		  == runp->wcnext->wcs[runp->nwcs - 1] + 1))
  	    {
@@ -192,14 +191,14 @@ index d2eebcfdbb..c3718d6589 100644
 -		     && wmemcmp ((wchar_t *) runp->wcs,
 -				 (wchar_t *)runp->wcnext->wcs,
 -				 runp->nwcs - 1) == 0
-+		     && wmemcmp_uint32 (runp->wcs,
-+					runp->wcnext->wcs,
-+					runp->nwcs - 1) == 0
++                     && wmemcmp_uint32 (runp->wcs,
++                                        runp->wcnext->wcs,
++                                        runp->nwcs - 1) == 0
  		     && (runp->wcs[runp->nwcs - 1]
  			 == runp->wcnext->wcs[runp->nwcs - 1] + 1));
  
 diff --git a/locale/programs/ld-ctype.c b/locale/programs/ld-ctype.c
-index f791e6b7e9..d809d6db7f 100644
+index 3328093d..25e7a8a0 100644
 --- a/locale/programs/ld-ctype.c
 +++ b/locale/programs/ld-ctype.c
 @@ -915,7 +915,7 @@ ctype_output (struct localedef_t *locale, const struct charmap_t *charmap,
@@ -207,64 +206,64 @@ index f791e6b7e9..d809d6db7f 100644
  
    default_missing_len = (ctype->default_missing
 -			 ? wcslen ((wchar_t *) ctype->default_missing)
-+			 ? wcslen_uint32 (ctype->default_missing)
++                         ? wcslen_uint32 (ctype->default_missing)
  			 : 0);
  
    init_locale_data (&file, nelems);
-@@ -1926,7 +1926,7 @@ read_translit_entry (struct linereader *ldfile, struct locale_ctype_t *ctype,
+@@ -1927,7 +1927,7 @@ read_translit_entry (struct linereader *ldfile, struct locale_ctype_t *ctype,
  	    ignore = 1;
  	  else
  	    /* This value is usable.  */
 -	    obstack_grow (ob, to_wstr, wcslen ((wchar_t *) to_wstr) * 4);
-+	    obstack_grow (ob, to_wstr, wcslen_uint32 (to_wstr) * 4);
++            obstack_grow (ob, to_wstr, wcslen_uint32 (to_wstr) * 4);
  
  	  first = 0;
  	}
-@@ -2460,8 +2460,8 @@ with character code range values one must use the absolute ellipsis `...'"));
+@@ -2461,8 +2461,8 @@ with character code range values one must use the absolute ellipsis `...'"));
  	    }
  
  	handle_tok_digit:
 -	  class_bit = _ISwdigit;
 -	  class256_bit = _ISdigit;
-+	  class_bit = BITw (tok_digit);
-+	  class256_bit = BIT (tok_digit);
++          class_bit = BITw (tok_digit);
++          class256_bit = BIT (tok_digit);
  	  handle_digits = 1;
  	  goto read_charclass;
  
-@@ -3901,8 +3901,7 @@ allocate_arrays (struct locale_ctype_t *ctype, const struct charmap_t *charmap,
+@@ -3904,8 +3904,7 @@ allocate_arrays (struct locale_ctype_t *ctype, const struct charmap_t *charmap,
  
  	  while (idx < number)
  	    {
 -	      int res = wcscmp ((const wchar_t *) sorted[idx]->from,
 -				(const wchar_t *) runp->from);
-+	      int res = wcscmp_uint32 (sorted[idx]->from, runp->from);
++              int res = wcscmp_uint32 (sorted[idx]->from, runp->from);
  	      if (res == 0)
  		{
  		  replace = 1;
-@@ -3939,11 +3938,11 @@ allocate_arrays (struct locale_ctype_t *ctype, const struct charmap_t *charmap,
+@@ -3942,11 +3941,11 @@ allocate_arrays (struct locale_ctype_t *ctype, const struct charmap_t *charmap,
        for (size_t cnt = 0; cnt < number; ++cnt)
  	{
  	  struct translit_to_t *srunp;
 -	  from_len += wcslen ((const wchar_t *) sorted[cnt]->from) + 1;
-+	  from_len += wcslen_uint32 (sorted[cnt]->from) + 1;
++          from_len += wcslen_uint32 (sorted[cnt]->from) + 1;
  	  srunp = sorted[cnt]->to;
  	  while (srunp != NULL)
  	    {
 -	      to_len += wcslen ((const wchar_t *) srunp->str) + 1;
-+	      to_len += wcslen_uint32 (srunp->str) + 1;
++              to_len += wcslen_uint32 (srunp->str) + 1;
  	      srunp = srunp->next;
  	    }
  	  /* Plus one for the extra NUL character marking the end of
-@@ -3967,18 +3966,18 @@ allocate_arrays (struct locale_ctype_t *ctype, const struct charmap_t *charmap,
+@@ -3970,18 +3969,18 @@ allocate_arrays (struct locale_ctype_t *ctype, const struct charmap_t *charmap,
  	  ctype->translit_from_idx[cnt] = from_len;
  	  ctype->translit_to_idx[cnt] = to_len;
  
 -	  len = wcslen ((const wchar_t *) sorted[cnt]->from) + 1;
 -	  wmemcpy ((wchar_t *) &ctype->translit_from_tbl[from_len],
 -		   (const wchar_t *) sorted[cnt]->from, len);
-+	  len = wcslen_uint32 (sorted[cnt]->from) + 1;
-+	  wmemcpy_uint32 (&ctype->translit_from_tbl[from_len],
-+			  sorted[cnt]->from, len);
++          len = wcslen_uint32 (sorted[cnt]->from) + 1;
++          wmemcpy_uint32 (&ctype->translit_from_tbl[from_len],
++                          sorted[cnt]->from, len);
  	  from_len += len;
  
  	  ctype->translit_to_idx[cnt] = to_len;
@@ -274,22 +273,22 @@ index f791e6b7e9..d809d6db7f 100644
 -	      len = wcslen ((const wchar_t *) srunp->str) + 1;
 -	      wmemcpy ((wchar_t *) &ctype->translit_to_tbl[to_len],
 -		       (const wchar_t *) srunp->str, len);
-+	      len = wcslen_uint32 (srunp->str) + 1;
-+	      wmemcpy_uint32 (&ctype->translit_to_tbl[to_len],
-+			      srunp->str, len);
++              len = wcslen_uint32 (srunp->str) + 1;
++              wmemcpy_uint32 (&ctype->translit_to_tbl[to_len],
++                              srunp->str, len);
  	      to_len += len;
  	      srunp = srunp->next;
  	    }
 diff --git a/locale/programs/ld-time.c b/locale/programs/ld-time.c
-index a755792363..e8b2f85522 100644
+index f7db873a..6196b815 100644
 --- a/locale/programs/ld-time.c
 +++ b/locale/programs/ld-time.c
 @@ -220,8 +220,10 @@ No definition for %s category found"), "LC_TIME");
  	}
        else
  	{
-+	  static const uint32_t wt_fmt_ampm[]
-+	    = { '%','I',':','%','M',':','%','S',' ','%','p',0 };
++          static const uint32_t wt_fmt_ampm[]
++            = { '%','I',':','%','M',':','%','S',' ','%','p',0 };
  	  time->t_fmt_ampm = "%I:%M:%S %p";
 -	  time->wt_fmt_ampm = (const uint32_t *) L"%I:%M:%S %p";
 +	  time->wt_fmt_ampm = wt_fmt_ampm;
@@ -313,21 +312,21 @@ index a755792363..e8b2f85522 100644
 -	  wstr = wstr ? wcschr (wstr + 1, L':') : NULL;	/* end offset */
 -	  wstr = wstr ? wcschr (wstr + 1, L':') : NULL;	/* end start */
 -	  wstr = wstr ? wcschr (wstr + 1, L':') : NULL;	/* end end */
-+	  wstr = wcschr_uint32 (time->wera[idx], L':'); /* end direction */
-+	  wstr = wstr ? wcschr_uint32 (wstr + 1, L':') : NULL; /* end offset */
-+	  wstr = wstr ? wcschr_uint32 (wstr + 1, L':') : NULL; /* end start */
-+	  wstr = wstr ? wcschr_uint32 (wstr + 1, L':') : NULL; /* end end */
++          wstr = wcschr_uint32 (time->wera[idx], L':'); /* end direction */
++          wstr = wstr ? wcschr_uint32 (wstr + 1, L':') : NULL; /* end offset */
++          wstr = wstr ? wcschr_uint32 (wstr + 1, L':') : NULL; /* end start */
++          wstr = wstr ? wcschr_uint32 (wstr + 1, L':') : NULL; /* end end */
  	  if (wstr != NULL)
  	    {
 -	      time->era_entries[idx].wname = (uint32_t *) wstr + 1;
 -	      wstr = wcschr (wstr + 1, L':');	/* end name */
-+	      time->era_entries[idx].wname = wstr + 1;
-+	      wstr = wcschr_uint32 (wstr + 1, L':'); /* end name */
++              time->era_entries[idx].wname = wstr + 1;
++              wstr = wcschr_uint32 (wstr + 1, L':'); /* end name */
  	      if (wstr != NULL)
  		{
  		  *wstr = L'\0';
 -		  time->era_entries[idx].wformat = (uint32_t *) wstr + 1;
-+		  time->era_entries[idx].wformat = wstr + 1;
++                  time->era_entries[idx].wformat = wstr + 1;
  		}
  	      else
  		time->era_entries[idx].wname =
@@ -336,21 +335,21 @@ index a755792363..e8b2f85522 100644
      time->date_fmt = "%a %b %e %H:%M:%S %Z %Y";
    if (time->wdate_fmt == NULL)
 -    time->wdate_fmt = (const uint32_t *) L"%a %b %e %H:%M:%S %Z %Y";
-+    {
-+      static const uint32_t wdate_fmt[] =
-+	{ '%','a',' ',
-+	  '%','b',' ',
-+	  '%','e',' ',
-+	  '%','H',':','%','M',':','%','S',' ',
-+	  '%','Z',' ',
-+	  '%','Y',0 };
-+      time->wdate_fmt = wdate_fmt;
-+    }
++     {
++       static const uint32_t wdate_fmt[] =
++        { '%','a',' ',
++          '%','b',' ',
++          '%','e',' ',
++          '%','H',':','%','M',':','%','S',' ',
++          '%','Z',' ',
++          '%','Y',0 };
++       time->wdate_fmt = wdate_fmt;
++     }
  }
  
  
 diff --git a/locale/programs/linereader.c b/locale/programs/linereader.c
-index 3525c8a43d..f8a7fd9c24 100644
+index 7ebd9338..57537507 100644
 --- a/locale/programs/linereader.c
 +++ b/locale/programs/linereader.c
 @@ -595,7 +595,7 @@ get_string (struct linereader *lr, const struct charmap_t *charmap,
@@ -363,18 +362,18 @@ index 3525c8a43d..f8a7fd9c24 100644
    size_t bufmax = 56;
  
 diff --git a/locale/programs/localedef.c b/locale/programs/localedef.c
-index d718d2e9f4..e0a3ad5a83 100644
+index dbbb0145..097a8b61 100644
 --- a/locale/programs/localedef.c
 +++ b/locale/programs/localedef.c
-@@ -105,6 +105,7 @@ void (*argp_program_version_hook) (FILE *, struct argp_state *) = print_version;
- #define OPT_BIG_ENDIAN 401
+@@ -109,6 +109,7 @@ void (*argp_program_version_hook) (FILE *, struct argp_state *) = print_version;
  #define OPT_NO_WARN 402
  #define OPT_WARN 403
-+#define OPT_UINT32_ALIGN 404
+ #define OPT_NO_HARD_LINKS 404
++#define OPT_UINT32_ALIGN 405
  
  /* Definitions of arguments for argp functions.  */
  static const struct argp_option options[] =
-@@ -147,6 +148,8 @@ static const struct argp_option options[] =
+@@ -153,6 +154,8 @@ static const struct argp_option options[] =
      N_("Generate little-endian output") },
    { "big-endian", OPT_BIG_ENDIAN, NULL, 0,
      N_("Generate big-endian output") },
@@ -383,7 +382,7 @@ index d718d2e9f4..e0a3ad5a83 100644
    { NULL, 0, NULL, 0, NULL }
  };
  
-@@ -236,12 +239,14 @@ main (int argc, char *argv[])
+@@ -242,12 +245,14 @@ main (int argc, char *argv[])
       ctype locale.  (P1003.2 4.35.5.2)  */
    setlocale (LC_CTYPE, "POSIX");
  
@@ -398,9 +397,9 @@ index d718d2e9f4..e0a3ad5a83 100644
  
    /* Process charmap file.  */
    charmap = charmap_read (charmap_file, verbose, 1, be_quiet, 1);
-@@ -389,6 +394,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
-       /* Enable the warnings.  */
-       set_warnings (arg, true);
+@@ -399,6 +404,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
+       /* Do not hard link to other locales.  */
+       hard_links = false;
        break;
 +    case OPT_UINT32_ALIGN:
 +      uint32_align_mask = strtol (arg, NULL, 0) - 1;
@@ -409,7 +408,7 @@ index d718d2e9f4..e0a3ad5a83 100644
        force_output = 1;
        break;
 diff --git a/locale/programs/locfile.c b/locale/programs/locfile.c
-index 32e5f761f2..b41e77bd8d 100644
+index eb2f4634..d3871473 100644
 --- a/locale/programs/locfile.c
 +++ b/locale/programs/locfile.c
 @@ -544,6 +544,9 @@ compare_files (const char *filename1, const char *filename2, size_t size,
@@ -432,7 +431,7 @@ index 32e5f761f2..b41e77bd8d 100644
  
  /* Record that FILE's next element is the 32-bit integer VALUE.  */
 diff --git a/locale/programs/locfile.h b/locale/programs/locfile.h
-index 89b347c72d..a636fc2960 100644
+index 7ea10038..24953fec 100644
 --- a/locale/programs/locfile.h
 +++ b/locale/programs/locfile.h
 @@ -71,6 +71,8 @@ extern void write_all_categories (struct localedef_t *definitions,
@@ -464,7 +463,7 @@ index 89b347c72d..a636fc2960 100644
  maybe_swap_uint32_obstack (struct obstack *obstack, size_t n)
  {
    maybe_swap_uint32_array ((uint32_t *) obstack_next_free (obstack) - n, n);
-@@ -276,4 +280,55 @@ extern void identification_output (struct localedef_t *locale,
+@@ -276,4 +280,54 @@ extern void identification_output (struct localedef_t *locale,
  				   const struct charmap_t *charmap,
  				   const char *output_path);
  
@@ -490,7 +489,7 @@ index 89b347c72d..a636fc2960 100644
 +    {
 +      int diff = *s1++ - *s2++;
 +      if (diff != 0)
-+	return diff;
++       return diff;
 +    }
 +  return 0;
 +}
@@ -518,31 +517,29 @@ index 89b347c72d..a636fc2960 100644
 +  while (*s++ != 0);
 +  return 0;
 +}
-+
  #endif /* locfile.h */
 diff --git a/locale/setlocale.c b/locale/setlocale.c
-index e4de907e1f..b5d8f5c17d 100644
+index 030f1727..096d8ed8 100644
 --- a/locale/setlocale.c
 +++ b/locale/setlocale.c
-@@ -64,36 +64,6 @@ static char *const _nl_current_used[] =
+@@ -63,35 +63,6 @@ static char *const _nl_current_used[] =
+ 
  #endif
  
- 
+-
 -/* Define an array of category names (also the environment variable names).  */
--const union catnamestr_t _nl_category_names attribute_hidden =
+-const struct catnamestr_t _nl_category_names attribute_hidden =
 -  {
--    {
 -#define DEFINE_CATEGORY(category, category_name, items, a) \
--      category_name,
+-    category_name,
 -#include "categories.def"
 -#undef DEFINE_CATEGORY
--    }
 -  };
 -
 -const uint8_t _nl_category_name_idxs[__LC_LAST] attribute_hidden =
 -  {
 -#define DEFINE_CATEGORY(category, category_name, items, a) \
--    [category] = offsetof (union catnamestr_t, CATNAMEMF (__LINE__)),
+-    [category] = offsetof (struct catnamestr_t, CATNAMEMF (__LINE__)),
 -#include "categories.def"
 -#undef DEFINE_CATEGORY
 -  };
@@ -562,5 +559,5 @@ index e4de907e1f..b5d8f5c17d 100644
  # define WEAK_POSTLOAD(postload) weak_extern (postload)
  #else
 -- 
-2.16.1
+2.25.1
 

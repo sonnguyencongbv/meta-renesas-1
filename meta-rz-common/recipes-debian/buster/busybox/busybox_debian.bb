@@ -7,7 +7,7 @@
 require busybox.inc
 
 inherit debian-package
-require recipes-debian/buster/sources/busybox.inc
+require recipes-debian/bullseye/sources/busybox.inc
 
 SRC_URI += " \
            file://busybox-udhcpc-no_deconfig.patch \
@@ -52,5 +52,4 @@ SRC_URI += " \
            file://makefile-libbb-race.patch \
            file://0001-testsuite-check-uudecode-before-using-it.patch \
            file://0001-dc.tests-fix-two-test-case-to-also-depend-on-DC_BIG.patch \
-           file://0001-Remove-stime-function-calls.patch \
 "

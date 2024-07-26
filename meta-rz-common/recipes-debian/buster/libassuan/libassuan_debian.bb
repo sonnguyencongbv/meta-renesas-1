@@ -1,4 +1,3 @@
-#
 # base recipe: meta/recipes-support/libassuan/libassuan_2.5.3.bb
 # base branch: warrior
 SUMMARY = "IPC library used by GnuPG and GPGME"
@@ -13,9 +12,10 @@ LIC_FILES_CHKSUM = "file://COPYING;md5=f27defe1e96c2e1ecd4e0c9be8967949 \
                     file://src/assuan-defs.h;endline=20;md5=15d950c83e82978e35b35e790d7e4d39"
 
 inherit debian-package
-require recipes-debian/buster/sources/libassuan.inc
+require recipes-debian/bullseye/sources/libassuan.inc
 
 DEPENDS = "libgpg-error"
+
 FILESEXTRAPATHS =. "${COREBASE}/meta/recipes-support/libassuan/libassuan:"
 
 SRC_URI += "file://libassuan-add-pkgconfig-support.patch"
